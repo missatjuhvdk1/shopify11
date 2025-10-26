@@ -117,6 +117,8 @@ const calculateSummary = (orders) => {
       averageOrderValue: 0,
       discountRate: 0,
       missedOpportunity: 0,
+      referralOrders: 0,
+      referralPayoutTotal: 0,
     };
   }
 
@@ -125,6 +127,10 @@ const calculateSummary = (orders) => {
       acc.totalRevenue += clampNumber(order.totalPrice);
       acc.totalDiscount += clampNumber(order.totalDiscounts);
       acc.missedOpportunity += clampNumber(order.estimatedMissedDiscount);
+      if (order.isReferral) {
+        acc.referralOrders += 1;
+        acc.referralPayoutTotal += clampNumber(order.referralPayout || 0);
+      }
 
       if (Array.isArray(order.discountApplications) && order.discountApplications.length > 0) {
         acc.discountedOrders += 1;
@@ -137,6 +143,8 @@ const calculateSummary = (orders) => {
       totalDiscount: 0,
       discountedOrders: 0,
       missedOpportunity: 0,
+      referralOrders: 0,
+      referralPayoutTotal: 0,
     },
   );
 
@@ -152,6 +160,8 @@ const calculateSummary = (orders) => {
     averageOrderValue,
     discountRate,
     missedOpportunity: roundTo(totals.missedOpportunity),
+    referralOrders: totals.referralOrders,
+    referralPayoutTotal: roundTo(totals.referralPayoutTotal),
   };
 };
 
@@ -205,6 +215,9 @@ const buildReferralPerformance = (orders) => {
         orders: 0,
         revenue: 0,
         discountAmount: 0,
+        payout: 0,
+        // Track unique discount codes used for this referral source
+        _codeSet: new Set(),
       });
     }
 
@@ -212,6 +225,16 @@ const buildReferralPerformance = (orders) => {
     record.orders += 1;
     record.revenue += clampNumber(order.totalPrice);
     record.discountAmount += clampNumber(order.totalDiscounts);
+    record.payout += clampNumber(order.referralPayout || 0);
+
+    // Collect discount codes (exclude automatic deals)
+    if (Array.isArray(order.discountApplications)) {
+      order.discountApplications.forEach((app) => {
+        if (app && app.type === "code" && app.code) {
+          record._codeSet.add(String(app.code));
+        }
+      });
+    }
   });
 
   return Array.from(referralMap.values())
@@ -219,6 +242,11 @@ const buildReferralPerformance = (orders) => {
       ...record,
       revenue: roundTo(record.revenue),
       discountAmount: roundTo(record.discountAmount),
+      payout: roundTo(record.payout),
+      // Present a joined, stable list of codes for display
+      codes: Array.from(record._codeSet).sort((a, b) => (a > b ? 1 : a < b ? -1 : 0)).join(", "),
+      // Drop internal field
+      _codeSet: undefined,
       averageOrderValue: roundTo(record.revenue / (record.orders || 1)),
     }))
     .sort((a, b) => b.revenue - a.revenue);
@@ -257,7 +285,7 @@ const buildDealPerformance = (orders) => {
     .sort((a, b) => b.redemptions - a.redemptions);
 };
 
-const buildDailyTrend = (orders) => {
+const buildDailyTrend = (orders, rangeStart, rangeEnd) => {
   const trendMap = new Map();
 
   orders.forEach((order) => {
@@ -269,6 +297,7 @@ const buildDailyTrend = (orders) => {
         discountedOrders: 0,
         revenue: 0,
         discountAmount: 0,
+        payoutAmount: 0,
       });
     }
 
@@ -276,11 +305,32 @@ const buildDailyTrend = (orders) => {
     record.orders += 1;
     record.revenue += clampNumber(order.totalPrice);
     record.discountAmount += clampNumber(order.totalDiscounts);
+    record.payoutAmount += clampNumber(order.referralPayout || 0);
 
     if (order.discountApplications?.length) {
       record.discountedOrders += 1;
     }
   });
+
+  const cursor = new Date(rangeStart);
+  cursor.setUTCHours(0, 0, 0, 0);
+  const end = new Date(rangeEnd);
+  end.setUTCHours(0, 0, 0, 0);
+
+  while (cursor.getTime() <= end.getTime()) {
+    const dateKey = cursor.toISOString().slice(0, 10);
+    if (!trendMap.has(dateKey)) {
+      trendMap.set(dateKey, {
+        date: dateKey,
+        orders: 0,
+        discountedOrders: 0,
+        revenue: 0,
+        discountAmount: 0,
+        payoutAmount: 0,
+      });
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
 
   return Array.from(trendMap.values())
     .sort((a, b) => (a.date > b.date ? 1 : -1))
@@ -288,6 +338,7 @@ const buildDailyTrend = (orders) => {
       ...entry,
       revenue: roundTo(entry.revenue),
       discountAmount: roundTo(entry.discountAmount),
+      payoutAmount: roundTo(entry.payoutAmount),
     }));
 };
 
@@ -309,8 +360,10 @@ export const createDashboardMetrics = ({
   const filteredOrders = filterOrdersByDateRange(orders, start, end);
   const summary = calculateSummary(filteredOrders);
 
-  // Derive potential revenue without discounts as a convenience value
-  const potentialRevenue = roundTo(summary.totalRevenue + summary.totalDiscountAmount);
+  // Derive potential revenue before discounts and referral payouts
+  const potentialRevenue = roundTo(
+    summary.totalRevenue + summary.totalDiscountAmount + summary.referralPayoutTotal,
+  );
 
   return {
     period: {
@@ -327,7 +380,7 @@ export const createDashboardMetrics = ({
     topDiscounts: buildTopDiscounts(filteredOrders, summary.totalRevenue),
     referralPerformance: buildReferralPerformance(filteredOrders),
     dealPerformance: buildDealPerformance(filteredOrders),
-    trend: buildDailyTrend(filteredOrders),
+    trend: buildDailyTrend(filteredOrders, start, end),
   };
 };
 

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useFetcher, useLoaderData } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
+/* eslint-disable react/prop-types */
+import { useMemo, useEffect, useRef, useState } from "react";
+import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { DEFAULT_PERIOD_DAYS } from "../utils/constants.js";
@@ -8,271 +8,13 @@ import {
   createDashboardMetrics,
   resolveDateRange,
 } from "../utils/dashboard-metrics.server.js";
-// Inline styles to avoid CSS module SSR parsing issues
-const sx = {
-  controls: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 12,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  controlItem: { display: "flex", flexDirection: "column", fontSize: 13 },
-  label: { color: "#5c5f62", marginBottom: 4, fontWeight: 500 },
-  dateControl: { position: "relative", minWidth: 220 },
-  dateTrigger: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "8px 12px",
-    border: "1px solid #c9ccd0",
-    borderRadius: 8,
-    fontSize: 14,
-    backgroundColor: "#ffffff",
-    cursor: "pointer",
-    minHeight: 40,
-  },
-  dateTriggerIcon: { width: 16, height: 16, flexShrink: 0, color: "#1f73ff" },
-  dateTriggerLabel: { color: "#202223", fontWeight: 500 },
-  datePicker: {
-    position: "absolute",
-    top: "100%",
-    left: 0,
-    zIndex: 20,
-    marginTop: 8,
-    padding: 16,
-    backgroundColor: "#ffffff",
-    borderRadius: 12,
-    border: "1px solid #c9ccd0",
-    boxShadow: "0 16px 32px rgba(0, 0, 0, 0.12)",
-    width: 280,
-  },
-  calendarHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  calendarTitle: { fontWeight: 600, fontSize: 16, color: "#202223" },
-  calendarNavButton: {
-    border: "1px solid #c9ccd0",
-    backgroundColor: "#f6f7f8",
-    borderRadius: 8,
-    width: 32,
-    height: 32,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-  },
-  calendarNavButtonDisabled: { opacity: 0.4, cursor: "not-allowed" },
-  weekdayRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(7, 1fr)",
-    gap: 4,
-    marginBottom: 8,
-    fontSize: 12,
-    color: "#5c5f62",
-    fontWeight: 600,
-    textAlign: "center",
-  },
-  calendarGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(7, 1fr)",
-    gap: 4,
-  },
-  calendarCell: {
-    height: 36,
-    borderRadius: 8,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 13,
-    cursor: "pointer",
-  },
-  calendarCellEmpty: { cursor: "default" },
-  calendarCellDisabled: { color: "#b5b8bb", cursor: "not-allowed" },
-  calendarCellInRange: { backgroundColor: "#e3f1ff", color: "#1f3b71" },
-  calendarCellSelected: { backgroundColor: "#1f73ff", color: "#ffffff" },
-  calendarCellEdge: { borderRadius: 12 },
-  calendarFooter: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 12,
-    gap: 12,
-  },
-  calendarFooterText: { fontSize: 12, color: "#5c5f62" },
-  calendarFooterActions: { display: "flex", gap: 8 },
-  tertiaryButton: {
-    border: "1px solid #c9ccd0",
-    backgroundColor: "#ffffff",
-    borderRadius: 8,
-    padding: "6px 12px",
-    fontSize: 13,
-    cursor: "pointer",
-  },
-  primaryButton: {
-    border: "none",
-    background: "linear-gradient(180deg, #3574f2 0%, #2858d6 100%)",
-    color: "#ffffff",
-    borderRadius: 8,
-    padding: "6px 16px",
-    fontSize: 13,
-    cursor: "pointer",
-  },
-  primaryButtonDisabled: { opacity: 0.4, cursor: "not-allowed" },
-  periodMeta: { color: "#5c5f62", fontSize: 14 },
-  metricGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: 12,
-    marginBottom: 16,
-  },
-  metricCard: { display: "flex", flexDirection: "column", gap: 4 },
-  metricLabel: { fontSize: 14, color: "#5c5f62", textTransform: "uppercase" },
-  metricValue: { fontSize: 24, fontWeight: 600 },
-  metricHelp: { fontSize: 13, color: "#5c5f62" },
-  sectionGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-    gap: 16,
-  },
-  sectionHeader: { display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 },
-  sectionSubhead: { color: "#5c5f62", fontSize: 14 },
-  tableWrap: {
-    position: "relative",
-    maxHeight: 240, // ~3 rows + header (adjust as needed)
-    overflowY: "auto",
-    borderRadius: 8,
-    border: "1px solid #e1e4e8",
-  },
-  stickyHeader: {
-    position: "sticky",
-    top: 0,
-    zIndex: 1,
-  },
-  table: { width: "100%", borderCollapse: "collapse" },
-  th: { fontWeight: 600, color: "#202223", backgroundColor: "#f6f7f8", padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #e1e4e8" },
-  thNowrap: { whiteSpace: "nowrap" },
-  td: { padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #e1e4e8", fontSize: 14 },
-  badge: { display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 999, backgroundColor: "#f0f1f3", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 },
-  emptyState: { textAlign: "center", padding: "20px 0", color: "#5c5f62", fontStyle: "italic" },
-};
-
-const MAX_RANGE_DAYS = 180;
-const WEEKDAYS = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
-
-const startOfUTCMonth = (value) => {
-  const date = new Date(value);
-  date.setUTCHours(0, 0, 0, 0);
-  date.setUTCDate(1);
-  return date;
-};
-
-const addMonths = (value, step) => {
-  const date = startOfUTCMonth(value);
-  date.setUTCMonth(date.getUTCMonth() + step);
-  return date;
-};
-
-const normalizeDate = (value) => {
-  const date = new Date(value);
-  date.setUTCHours(0, 0, 0, 0);
-  return date;
-};
-
-const getDateKey = (value) => normalizeDate(value).getTime();
-
-const buildCalendarDays = (month) => {
-  const start = startOfUTCMonth(month);
-  const leading = (start.getUTCDay() + 6) % 7;
-  const daysInMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
-  const days = [];
-
-  for (let i = 0; i < leading; i += 1) {
-    days.push(null);
-  }
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    days.push(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), day)));
-  }
-
-  while (days.length % 7 !== 0) {
-    days.push(null);
-  }
-
-  return days;
-};
-
-const formatMonthTitle = (value) =>
-  new Intl.DateTimeFormat("nl-NL", { month: "long", year: "numeric" }).format(value);
-
-const formatRangeForDisplay = (start, end) => {
-  const sameDay = getDateKey(start) === getDateKey(end);
-  if (sameDay) {
-    return new Intl.DateTimeFormat("nl-NL", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(start);
-  }
-
-  const includeYear = start.getUTCFullYear() !== end.getUTCFullYear();
-  const startFormatter = new Intl.DateTimeFormat("nl-NL", {
-    month: "short",
-    day: "numeric",
-    ...(includeYear ? { year: "numeric" } : {}),
-  });
-  const endFormatter = new Intl.DateTimeFormat("nl-NL", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-
-  return `${startFormatter.format(start)} – ${endFormatter.format(end)}`;
-};
-
-const normalizeRangeOrder = (range) => {
-  const startKey = getDateKey(range.start);
-  const endKey = getDateKey(range.end);
-  if (startKey <= endKey) {
-    return {
-      start: normalizeDate(range.start),
-      end: normalizeDate(range.end),
-    };
-  }
-
-  return {
-    start: normalizeDate(range.end),
-    end: normalizeDate(range.start),
-  };
-};
-
-const renderCalendarIcon = () => (
-  <svg style={sx.dateTriggerIcon} viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <path
-      fill="currentColor"
-      d="M6 1a1 1 0 0 1 1 1v1h6V2a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H4a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h1V2a1 1 0 0 1 1-1Zm9 6H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1Z"
-    />
-  </svg>
-);
-
-const renderChevronIcon = (direction) => (
-  <svg viewBox="0 0 16 16" width="12" height="12" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    {direction === "left" ? (
-      <path
-        fill="currentColor"
-        d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06L4.97 8.03a.75.75 0 0 1 0-1.06l3.75-3.75a.75.75 0 0 1 1.06 0Z"
-      />
-    ) : (
-      <path
-        fill="currentColor"
-        d="M6.22 12.78a.75.75 0 0 1 0-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 1.06-1.06l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 0 1-1.06 0Z"
-      />
-    )}
-  </svg>
-);
+import {
+  MetricsPageLayout,
+  formatCurrency,
+  formatPercent,
+  metricsStyles as sx,
+  useMetricsController,
+} from "../components/metrics-page.jsx";
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -295,6 +37,7 @@ export const loader = async ({ request }) => {
           node {
             id
             createdAt
+            tags
             totalPriceSet { shopMoney { amount currencyCode } }
             totalDiscountsSet { shopMoney { amount currencyCode } }
             discountApplications(first: 20) {
@@ -345,16 +88,16 @@ export const loader = async ({ request }) => {
       allocs.forEach((alloc) => {
         const app = alloc.discountApplication;
         if (!app) return;
-        const key = app.__typename === "AutomaticDiscountApplication"
-          ? `auto::${app.title}`
-          : `code::${app.code}`;
+        const key =
+          app.__typename === "AutomaticDiscountApplication" ? `auto::${app.title}` : `code::${app.code}`;
         const amt = Number(alloc.allocatedAmountSet?.shopMoney?.amount || 0);
         allocationSums.set(key, (allocationSums.get(key) || 0) + amt);
       });
     });
 
     const apps = (n.discountApplications?.nodes || []).map((a) => {
-      const key = a.__typename === "AutomaticDiscountApplication" ? `auto::${a.title}` : `code::${a.code}`;
+      const key =
+        a.__typename === "AutomaticDiscountApplication" ? `auto::${a.title}` : `code::${a.code}`;
       const amount = Number(allocationSums.get(key) || 0);
       return {
         code: a.code,
@@ -369,13 +112,23 @@ export const loader = async ({ request }) => {
       .filter((a) => a.type === "auto")
       .map((a) => ({ id: a.title, title: a.title, type: a.type, amount: a.amount }));
 
+    // Referral detection: tag of form "Referral - ...". Payout = 30% of final price
+    const referralTag = (n.tags || []).find((t) => typeof t === "string" && t.startsWith("Referral - "));
+    const referralSource = referralTag ? referralTag.replace(/^Referral -\s*/, "").trim() : null;
+
+    const totalPrice = Number(n.totalPriceSet?.shopMoney?.amount || 0);
+    const totalDiscounts = Number(n.totalDiscountsSet?.shopMoney?.amount || 0);
+
     return {
       id: n.id,
       createdAt: n.createdAt,
-      totalPrice: Number(n.totalPriceSet?.shopMoney?.amount || 0),
-      totalDiscounts: Number(n.totalDiscountsSet?.shopMoney?.amount || 0),
+      totalPrice,
+      totalDiscounts,
       discountApplications: apps,
       dealApplications,
+      isReferral: Boolean(referralSource),
+      referralSource: referralSource || undefined,
+      referralPayout: referralSource ? totalPrice * 0.3 : 0,
     };
   });
 
@@ -390,156 +143,20 @@ export const loader = async ({ request }) => {
   return { metrics };
 };
 
-const formatCurrency = (value) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value || 0);
-
-const formatPercent = (value) =>
-  `${new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 1,
-  }).format(value || 0)}%`;
-
-export default function DashboardPage() {
+export default function DiscountsPage() {
   const { metrics: initialMetrics } = useLoaderData();
-  const fallbackEnd = normalizeDate(new Date());
-  const fallbackStart = (() => {
-    const start = new Date(fallbackEnd);
-    start.setUTCDate(start.getUTCDate() - (DEFAULT_PERIOD_DAYS - 1));
-    return normalizeDate(start);
-  })();
-  const baseRange =
-    initialMetrics?.period?.start && initialMetrics?.period?.end
-      ? {
-          start: normalizeDate(initialMetrics.period.start),
-          end: normalizeDate(initialMetrics.period.end),
-        }
-      : { start: fallbackStart, end: fallbackEnd };
-
-  const [metrics, setMetrics] = useState(initialMetrics);
-  const [dateRange, setDateRange] = useState(baseRange);
-  const [draftRange, setDraftRange] = useState(baseRange);
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [hoveredDate, setHoveredDate] = useState(null);
-  const [pickerMonth, setPickerMonth] = useState(() => startOfUTCMonth(baseRange.end));
-  const pickerRef = useRef(null);
-  const fetcher = useFetcher();
-  const shopify = useAppBridge();
-  const today = useMemo(() => normalizeDate(new Date()), []);
-  const minSelectableDate = useMemo(() => {
-    const min = new Date(today);
-    min.setUTCDate(min.getUTCDate() - (MAX_RANGE_DAYS - 1));
-    return normalizeDate(min);
-  }, [today]);
-  const minMonth = useMemo(() => startOfUTCMonth(minSelectableDate), [minSelectableDate]);
-  const maxMonth = useMemo(() => startOfUTCMonth(today), [today]);
-  const calendarDays = useMemo(() => buildCalendarDays(pickerMonth), [pickerMonth]);
-  const displayRangeLabel = useMemo(
-    () => formatRangeForDisplay(dateRange.start, dateRange.end),
-    [dateRange],
-  );
-  const hoverIsValid =
-    Boolean(hoveredDate) &&
-    Boolean(draftRange.start) &&
-    getDateKey(hoveredDate) >= getDateKey(draftRange.start);
-  const previewEnd = draftRange.end || (hoverIsValid ? hoveredDate : draftRange.start || dateRange.end);
-  const previewRangeLabel = draftRange.start
-    ? formatRangeForDisplay(draftRange.start, previewEnd)
-    : "Selecteer twee datums";
-  const prevMonthDate = addMonths(pickerMonth, -1);
-  const nextMonthDate = addMonths(pickerMonth, 1);
-  const canNavigatePrev = prevMonthDate.getTime() >= minMonth.getTime();
-  const canNavigateNext = nextMonthDate.getTime() <= maxMonth.getTime();
-  const applyDisabled = !draftRange.start || !draftRange.end;
-
-  useEffect(() => {
-    if (fetcher.data) {
-      setMetrics(fetcher.data);
-      if (fetcher.data.period?.start && fetcher.data.period?.end) {
-        const nextRange = {
-          start: normalizeDate(fetcher.data.period.start),
-          end: normalizeDate(fetcher.data.period.end),
-        };
-        setDateRange(nextRange);
-        setDraftRange(nextRange);
-        setPickerMonth(startOfUTCMonth(nextRange.end));
-      }
-      shopify.toast.show("Dashboard bijgewerkt");
-    }
-  }, [fetcher.data, shopify]);
-
-  useEffect(() => {
-    if (!isPickerOpen) {
-      return;
-    }
-
-    const handleClickAway = (event) => {
-      if (pickerRef.current && !pickerRef.current.contains(event.target)) {
-        setIsPickerOpen(false);
-        setHoveredDate(null);
-        setDraftRange(dateRange);
-        setPickerMonth(startOfUTCMonth(dateRange.end));
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickAway);
-    return () => document.removeEventListener("mousedown", handleClickAway);
-  }, [isPickerOpen, dateRange]);
-
-  useEffect(() => {
-    if (!isPickerOpen) {
-      return;
-    }
-
-    const handleEscape = (event) => {
-      if (event.key === "Escape") {
-        setIsPickerOpen(false);
-        setHoveredDate(null);
-        setDraftRange(dateRange);
-        setPickerMonth(startOfUTCMonth(dateRange.end));
-      }
-    };
-
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [isPickerOpen, dateRange]);
-
-  const isRefreshing = fetcher.state === "loading";
-
-  const loadMetrics = async (range) => {
-    try {
-      await shopify.ready;
-
-      const token = await (typeof shopify.idToken === "function"
-        ? shopify.idToken()
-        : typeof shopify.getSessionToken === "function"
-          ? shopify.getSessionToken()
-          : Promise.reject(new Error("Session token API unavailable")));
-      fetcher.load(
-        `/api/metrics/overview?id_token=${encodeURIComponent(
-          token,
-        )}&startDate=${encodeURIComponent(range.start.toISOString())}&endDate=${encodeURIComponent(
-          range.end.toISOString(),
-        )}`,
-      );
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error("Failed to acquire session token", err);
-      shopify.toast.show("Kon gegevens niet vernieuwen. Open de app opnieuw vanuit Shopify-admin.", {
-        isError: true,
-      });
-    }
-  };
+  const controller = useMetricsController(initialMetrics);
+  const { metrics } = controller;
 
   const summaryCards = useMemo(
     () => [
       {
         id: "totalRevenue",
         label: "Totale omzet",
-        value: formatCurrency(metrics.summary.totalRevenue),
-        helpText: "Afkomstig van in aanmerking komende bestellingen",
+        value: formatCurrency(
+          Math.max(0, metrics.summary.totalRevenue - metrics.summary.referralPayoutTotal),
+        ),
+        helpText: "Netto (na referral-uitbetalingen)",
       },
       {
         id: "totalDiscountAmount",
@@ -554,299 +171,93 @@ export default function DashboardPage() {
         helpText: `${metrics.summary.totalOrders} bestellingen in periode`,
       },
       {
-        id: "discountRate",
-        label: "Kortingsconversie",
-        value: formatPercent(metrics.summary.discountRate),
+        id: "totalDiscountedOrders",
+        label: "Totale Kortingen",
+        value: String(metrics.summary.discountedOrders),
         helpText: "Bestellingen met een toegepaste korting",
       },
       {
         id: "profitPotential",
         label: "Potentiële omzet",
         value: formatCurrency(metrics.summary.potentialRevenue),
-        helpText: "Geschatte omzet zonder kortingen",
+        helpText: "Zonder kortingen en referrals",
       },
     ],
     [metrics.summary],
   );
 
-  const togglePicker = () => {
-    setIsPickerOpen((open) => {
-      if (open) {
-        setHoveredDate(null);
-        setDraftRange(dateRange);
-        setPickerMonth(startOfUTCMonth(dateRange.end));
-        return false;
-      }
-      setHoveredDate(null);
-      setDraftRange(dateRange);
-      setPickerMonth(startOfUTCMonth(dateRange.end));
-      return true;
-    });
-  };
-
-  const handleDayClick = (date) => {
-    if (!date) {
-      return;
-    }
-
-    const day = normalizeDate(date);
-    if (day.getTime() < getDateKey(minSelectableDate) || day.getTime() > getDateKey(today)) {
-      return;
-    }
-
-    setDraftRange((current) => {
-      if (!current.start || (current.start && current.end)) {
-        return { start: day, end: null };
-      }
-
-      const startKey = getDateKey(current.start);
-      if (day.getTime() < startKey) {
-        return { start: day, end: current.start };
-      }
-
-      if (day.getTime() === startKey) {
-        return { start: day, end: day };
-      }
-
-      return { start: current.start, end: day };
-    });
-    setHoveredDate(null);
-  };
-
-  const handleDayHover = (date) => {
-    if (!isPickerOpen || !draftRange.start || draftRange.end || !date) {
-      setHoveredDate(null);
-      return;
-    }
-
-    const day = normalizeDate(date);
-    const startKey = getDateKey(draftRange.start);
-    const dayKey = getDateKey(day);
-    if (dayKey < startKey || dayKey > getDateKey(today)) {
-      setHoveredDate(null);
-      return;
-    }
-
-    setHoveredDate(day);
-  };
-
-  const applyRange = async () => {
-    if (!draftRange.start || !draftRange.end) {
-      return;
-    }
-
-    const normalized = normalizeRangeOrder(draftRange);
-    setDateRange(normalized);
-    setDraftRange(normalized);
-    setPickerMonth(startOfUTCMonth(normalized.end));
-    setIsPickerOpen(false);
-    setHoveredDate(null);
-    await loadMetrics(normalized);
-  };
-
-  const cancelRange = () => {
-    setIsPickerOpen(false);
-    setHoveredDate(null);
-    setDraftRange(dateRange);
-    setPickerMonth(startOfUTCMonth(dateRange.end));
-  };
-
-  const refreshData = async () => {
-    await loadMetrics(dateRange);
-  };
+  const trendData = useMemo(
+    () =>
+      (metrics.trend || []).map((entry) => ({
+        date: entry.date,
+        // Actual: net after referral payouts
+        total: Math.max(0, entry.revenue - (entry.payoutAmount || 0)),
+        // Potential: before discounts and referral payouts
+        potential: entry.revenue + entry.discountAmount + (entry.payoutAmount || 0),
+      })),
+    [metrics.trend],
+  );
 
   return (
-    <s-page heading="Dashboard Kortingsinzichten" secondary-actions="true">
-      <div style={sx.controls}>
-        <div style={sx.controlItem}>
-          <span style={sx.label}>Datumbereik</span>
-          <div style={sx.dateControl} ref={pickerRef}>
-            <button type="button" style={sx.dateTrigger} onClick={togglePicker}>
-              {renderCalendarIcon()}
-              <span style={sx.dateTriggerLabel}>{displayRangeLabel}</span>
-            </button>
-            {isPickerOpen && (
-              <div style={sx.datePicker}>
-                <div style={sx.calendarHeader}>
-                  <button
-                    type="button"
-                    style={{
-                      ...sx.calendarNavButton,
-                      ...(canNavigatePrev ? {} : sx.calendarNavButtonDisabled),
-                    }}
-                    onClick={() => {
-                      if (canNavigatePrev) setPickerMonth(prevMonthDate);
-                    }}
-                    disabled={!canNavigatePrev}
-                  >
-                    {renderChevronIcon("left")}
-                  </button>
-                  <span style={sx.calendarTitle}>{formatMonthTitle(pickerMonth)}</span>
-                  <button
-                    type="button"
-                    style={{
-                      ...sx.calendarNavButton,
-                      ...(canNavigateNext ? {} : sx.calendarNavButtonDisabled),
-                    }}
-                    onClick={() => {
-                      if (canNavigateNext) setPickerMonth(nextMonthDate);
-                    }}
-                    disabled={!canNavigateNext}
-                  >
-                    {renderChevronIcon("right")}
-                  </button>
-                </div>
-                <div style={sx.weekdayRow}>
-                  {WEEKDAYS.map((weekday) => (
-                    <span key={weekday}>{weekday}</span>
-                  ))}
-                </div>
-                <div
-                  style={sx.calendarGrid}
-                  onMouseLeave={() => {
-                    if (!draftRange.end) setHoveredDate(null);
-                  }}
-                >
-                  {calendarDays.map((day, index) => {
-                    if (!day) {
-                      return (
-                        <div
-                          key={`empty-${index}`}
-                          style={{ ...sx.calendarCell, ...sx.calendarCellEmpty }}
-                        />
-                      );
-                    }
-
-                    const dayKey = getDateKey(day);
-                    const disabled =
-                      dayKey < getDateKey(minSelectableDate) || dayKey > getDateKey(today);
-                    const startKey = draftRange.start ? getDateKey(draftRange.start) : null;
-                    const endKey = draftRange.end ? getDateKey(draftRange.end) : null;
-                    const hoverKey = hoverIsValid ? getDateKey(hoveredDate) : null;
-                    const rangeEndKey = endKey ?? hoverKey;
-                    let inRange = false;
-                    if (startKey !== null && rangeEndKey !== null) {
-                      const rangeStart = Math.min(startKey, rangeEndKey);
-                      const rangeFinish = Math.max(startKey, rangeEndKey);
-                      inRange = dayKey >= rangeStart && dayKey <= rangeFinish;
-                    } else if (startKey !== null && dayKey === startKey) {
-                      inRange = true;
-                    }
-                    const isStart = startKey !== null && dayKey === startKey;
-                    const isEnd =
-                      rangeEndKey !== null &&
-                      dayKey === rangeEndKey &&
-                      (endKey !== null || (hoverKey !== null && dayKey !== startKey));
-
-                    const cellStyle = {
-                      ...sx.calendarCell,
-                      ...(disabled ? sx.calendarCellDisabled : {}),
-                      ...(inRange ? sx.calendarCellInRange : {}),
-                      ...((isStart || isEnd) ? sx.calendarCellSelected : {}),
-                    };
-
-                    if (isStart && isEnd) {
-                      cellStyle.borderRadius = 12;
-                    } else if (isStart && inRange) {
-                      cellStyle.borderRadius = "12px 6px 6px 12px";
-                    } else if (isEnd && inRange) {
-                      cellStyle.borderRadius = "6px 12px 12px 6px";
-                    } else if (inRange) {
-                      cellStyle.borderRadius = 8;
-                    }
-
-                    return (
-                      <button
-                        type="button"
-                        key={day.toISOString()}
-                        style={cellStyle}
-                        disabled={disabled}
-                        onClick={() => handleDayClick(day)}
-                        onMouseEnter={() => handleDayHover(day)}
-                        onFocus={() => handleDayHover(day)}
-                      >
-                        {day.getUTCDate()}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div style={sx.calendarFooter}>
-                  <span style={sx.calendarFooterText}>{previewRangeLabel}</span>
-                  <div style={sx.calendarFooterActions}>
-                    <button type="button" style={sx.tertiaryButton} onClick={cancelRange}>
-                      Annuleren
-                    </button>
-                    <button
-                      type="button"
-                      style={{
-                        ...sx.primaryButton,
-                        ...(applyDisabled ? sx.primaryButtonDisabled : {}),
-                      }}
-                      onClick={applyRange}
-                      disabled={applyDisabled}
-                    >
-                      Toepassen
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+    <MetricsPageLayout heading="Discounts" controller={controller} summaryCards={summaryCards}>
+      <s-card padding="loose" style={{ marginBottom: 16 }}>
+        <div style={sx.sectionHeader}>
+          <h2>Omzetontwikkeling</h2>
+          <span style={sx.sectionSubhead}>
+            Vergelijk potentiële omzet zonder kortingen met gerealiseerde omzet
+          </span>
         </div>
-        <s-button onClick={refreshData} {...(isRefreshing ? { loading: true } : {})}>
-          Vernieuwen
-        </s-button>
-        <span style={sx.periodMeta}>
-          {metrics.period.label} · Bestellingen: {metrics.summary.totalOrders}
-        </span>
-      </div>
-
-      <div style={sx.metricGrid}>
-        {summaryCards.map((card) => (
-          <s-card key={card.id} padding="tight">
-            <div style={sx.metricCard}>
-              <span style={sx.metricLabel}>{card.label}</span>
-              <span style={sx.metricValue}>{card.value}</span>
-              <span style={sx.metricHelp}>{card.helpText}</span>
-            </div>
-          </s-card>
-        ))}
-      </div>
+        <RevenueComparisonChart data={trendData} />
+      </s-card>
 
       <div style={sx.sectionGrid}>
         <s-card padding="loose">
           <div style={sx.sectionHeader}>
             <h2>Top inwisselprestaties</h2>
-            <span style={sx.sectionSubhead}>
-              Kortingen en bundels op basis van inwisselingen
-            </span>
+            <span style={sx.sectionSubhead}>Kortingen en bundels op basis van inwisselingen</span>
           </div>
           <div style={sx.tableWrap}>
             <table style={sx.table}>
-            <thead style={sx.stickyHeader}>
-              <tr>
-                <th style={sx.th} scope="col">Code</th>
-                <th style={sx.th} scope="col">Type</th>
-                <th style={sx.th} scope="col">Inwisselingen</th>
-                <th style={sx.th} scope="col">Omzet</th>
-                <th style={{...sx.th, ...sx.thNowrap}} scope="col">Gegeven korting</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.topDiscounts.map((discount) => (
-                <tr key={discount.id}>
-                  <td style={sx.td} data-label="Code">{discount.title}</td>
-                  <td style={sx.td} data-label="Type">
-                    <span style={sx.badge}>{discount.type}</span>
-                  </td>
-                  <td style={sx.td} data-label="Inwisselingen">{discount.redemptions}</td>
-                  <td style={sx.td} data-label="Omzet">{formatCurrency(discount.revenue)}</td>
-                  <td style={sx.td} data-label="Gegeven korting">
-                    {formatCurrency(discount.discountGiven)}
-                  </td>
+              <thead style={sx.stickyHeader}>
+                <tr>
+                  <th style={sx.th} scope="col">
+                    Code
+                  </th>
+                  <th style={sx.th} scope="col">
+                    Type
+                  </th>
+                  <th style={sx.th} scope="col">
+                    Inwisselingen
+                  </th>
+                  <th style={sx.th} scope="col">
+                    Omzet
+                  </th>
+                  <th style={{ ...sx.th, ...sx.thNowrap }} scope="col">
+                    Gegeven korting
+                  </th>
                 </tr>
-              ))}
-            </tbody>
+              </thead>
+              <tbody>
+                {metrics.topDiscounts.map((discount) => (
+                  <tr key={discount.id}>
+                    <td style={sx.td} data-label="Code">
+                      {discount.title}
+                    </td>
+                    <td style={sx.td} data-label="Type">
+                      <span style={sx.badge}>{discount.type}</span>
+                    </td>
+                    <td style={sx.td} data-label="Inwisselingen">
+                      {discount.redemptions}
+                    </td>
+                    <td style={sx.td} data-label="Omzet">
+                      {formatCurrency(discount.revenue)}
+                    </td>
+                    <td style={sx.td} data-label="Gegeven korting">
+                      {formatCurrency(discount.discountGiven)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </s-card>
@@ -858,75 +269,49 @@ export default function DashboardPage() {
           </div>
           <div style={sx.tableWrap}>
             <table style={sx.table}>
-            <thead style={sx.stickyHeader}>
-              <tr>
-                <th style={sx.th} scope="col">Code</th>
-                <th style={sx.th} scope="col">Inwisselingen</th>
-                <th style={sx.th} scope="col">Omzet</th>
-                <th style={{...sx.th, ...sx.thNowrap}} scope="col">Gegeven korting</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.topDiscounts
-                .filter((d) => d.type === "code")
-                .map((discount) => (
-                  <tr key={`code-${discount.id}`}>
-                    <td style={sx.td} data-label="Code">{discount.title}</td>
-                    <td style={sx.td} data-label="Inwisselingen">{discount.redemptions}</td>
-                    <td style={sx.td} data-label="Omzet">{formatCurrency(discount.revenue)}</td>
-                    <td style={sx.td} data-label="Gegeven korting">{formatCurrency(discount.discountGiven)}</td>
+              <thead style={sx.stickyHeader}>
+                <tr>
+                  <th style={sx.th} scope="col">
+                    Code
+                  </th>
+                  <th style={sx.th} scope="col">
+                    Inwisselingen
+                  </th>
+                  <th style={sx.th} scope="col">
+                    Omzet
+                  </th>
+                  <th style={{ ...sx.th, ...sx.thNowrap }} scope="col">
+                    Gegeven korting
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {metrics.topDiscounts
+                  .filter((d) => d.type === "code")
+                  .map((discount) => (
+                    <tr key={`code-${discount.id}`}>
+                      <td style={sx.td} data-label="Code">
+                        {discount.title}
+                      </td>
+                      <td style={sx.td} data-label="Inwisselingen">
+                        {discount.redemptions}
+                      </td>
+                      <td style={sx.td} data-label="Omzet">
+                        {formatCurrency(discount.revenue)}
+                      </td>
+                      <td style={sx.td} data-label="Gegeven korting">
+                        {formatCurrency(discount.discountGiven)}
+                      </td>
+                    </tr>
+                  ))}
+                {metrics.topDiscounts.filter((d) => d.type === "code").length === 0 && (
+                  <tr>
+                    <td colSpan={4} style={sx.emptyState}>
+                      Geen kortingscodes gebruikt in deze periode.
+                    </td>
                   </tr>
-                ))}
-              {metrics.topDiscounts.filter((d) => d.type === "code").length === 0 && (
-                <tr>
-                  <td colSpan={4} style={sx.emptyState}>
-                    Geen kortingscodes gebruikt in deze periode.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-            </table>
-          </div>
-        </s-card>
-
-        <s-card padding="loose">
-          <div style={sx.sectionHeader}>
-            <h2>Referrals</h2>
-            <span style={sx.sectionSubhead}>Toppartners die verkoop stimuleren</span>
-          </div>
-          <div style={sx.tableWrap}>
-            <table style={sx.table}>
-            <thead style={sx.stickyHeader}>
-              <tr>
-                <th style={sx.th} scope="col">Bron</th>
-                <th style={sx.th} scope="col">Bestellingen</th>
-                <th style={sx.th} scope="col">Omzet</th>
-                <th style={sx.th} scope="col">Kortingen</th>
-                <th style={sx.th} scope="col">Gemiddelde bestelling</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.referralPerformance.map((referral) => (
-                <tr key={referral.source}>
-                  <td style={sx.td} data-label="Bron">{referral.source}</td>
-                  <td style={sx.td} data-label="Bestellingen">{referral.orders}</td>
-                  <td style={sx.td} data-label="Omzet">{formatCurrency(referral.revenue)}</td>
-                  <td style={sx.td} data-label="Kortingen">
-                    {formatCurrency(referral.discountAmount)}
-                  </td>
-                  <td style={sx.td} data-label="Gemiddelde bestelling">
-                    {formatCurrency(referral.averageOrderValue)}
-                  </td>
-                </tr>
-              ))}
-              {metrics.referralPerformance.length === 0 && (
-                <tr>
-                  <td colSpan={5} style={sx.emptyState}>
-                    Geen verwijzingsactiviteit in deze periode.
-                  </td>
-                </tr>
-              )}
-            </tbody>
+                )}
+              </tbody>
             </table>
           </div>
         </s-card>
@@ -934,50 +319,383 @@ export default function DashboardPage() {
         <s-card padding="loose">
           <div style={sx.sectionHeader}>
             <h2>Bundelprestaties</h2>
-            <span style={sx.sectionSubhead}>
-              Automatische promoties (bundels)
-            </span>
+            <span style={sx.sectionSubhead}>Automatische promoties (bundels)</span>
           </div>
           <div style={sx.tableWrap}>
             <table style={sx.table}>
-            <thead style={sx.stickyHeader}>
-              <tr>
-                <th style={sx.th} scope="col">Aanbieding</th>
-                <th style={sx.th} scope="col">Type</th>
-                <th style={sx.th} scope="col">Inwisselingen</th>
-                <th style={sx.th} scope="col">Omzet</th>
-                <th style={{...sx.th, ...sx.thNowrap}} scope="col">Gegeven korting</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.dealPerformance.map((deal) => (
-                <tr key={deal.id}>
-                  <td style={sx.td} data-label="Aanbieding">{deal.title}</td>
-                  <td style={sx.td} data-label="Type">
-                    <span style={sx.badge}>{deal.type}</span>
-                  </td>
-                  <td style={sx.td} data-label="Inwisselingen">{deal.redemptions}</td>
-                  <td style={sx.td} data-label="Omzet">{formatCurrency(deal.revenue)}</td>
-                  <td style={sx.td} data-label="Gegeven korting">
-                    {formatCurrency(deal.discountGiven)}
-                  </td>
-                </tr>
-              ))}
-              {metrics.dealPerformance.length === 0 && (
+              <thead style={sx.stickyHeader}>
                 <tr>
-                  <td colSpan={5} style={sx.emptyState}>
-                    Geen dealactiviteit voor de geselecteerde periode.
-                  </td>
+                  <th style={sx.th} scope="col">
+                    Aanbieding
+                  </th>
+                  <th style={sx.th} scope="col">
+                    Type
+                  </th>
+                  <th style={sx.th} scope="col">
+                    Inwisselingen
+                  </th>
+                  <th style={sx.th} scope="col">
+                    Omzet
+                  </th>
+                  <th style={{ ...sx.th, ...sx.thNowrap }} scope="col">
+                    Gegeven korting
+                  </th>
                 </tr>
-              )}
-            </tbody>
+              </thead>
+              <tbody>
+                {metrics.dealPerformance.map((deal) => (
+                  <tr key={deal.id}>
+                    <td style={sx.td} data-label="Aanbieding">
+                      {deal.title}
+                    </td>
+                    <td style={sx.td} data-label="Type">
+                      <span style={sx.badge}>{deal.type}</span>
+                    </td>
+                    <td style={sx.td} data-label="Inwisselingen">
+                      {deal.redemptions}
+                    </td>
+                    <td style={sx.td} data-label="Omzet">
+                      {formatCurrency(deal.revenue)}
+                    </td>
+                    <td style={sx.td} data-label="Gegeven korting">
+                      {formatCurrency(deal.discountGiven)}
+                    </td>
+                  </tr>
+                ))}
+                {metrics.dealPerformance.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={sx.emptyState}>
+                      Geen dealactiviteit voor de geselecteerde periode.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
             </table>
           </div>
         </s-card>
       </div>
-    </s-page>
+    </MetricsPageLayout>
   );
 }
+
+const RevenueComparisonChart = ({ data }) => {
+  if (!Array.isArray(data) || data.length === 0) {
+    return (
+      <div style={sx.emptyState}>
+        Nog geen omzetactiviteit voor dit bereik. Pas de filter aan of probeer een langere periode.
+      </div>
+    );
+  }
+
+  const chartHeight = 300;
+  const paddingTop = 24;
+  const paddingBottom = 80; // extra room for rotated date labels
+  const paddingLeft = 70;
+  const paddingRight = 40;
+
+  const wrapperRef = useRef(null);
+  const svgRef = useRef(null);
+  const [wrapperWidth, setWrapperWidth] = useState(null);
+  const [hoverIndex, setHoverIndex] = useState(null);
+  const [hoverX, setHoverX] = useState(null);
+  useEffect(() => {
+    if (!wrapperRef.current) return;
+    const el = wrapperRef.current;
+    const update = () => setWrapperWidth(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const daysCount = Math.max(1, data.length);
+  const perDay = daysCount <= 14 ? 70 : daysCount <= 30 ? 38 : daysCount <= 60 ? 24 : 14;
+  const plotWidth = Math.max(1, daysCount - 1);
+  const naturalWidth = Math.max(640, paddingLeft + paddingRight + plotWidth * perDay);
+  // Make the chart always fit the wrapper (no horizontal scroll) while
+  // keeping text at a constant size by avoiding SVG viewBox scaling.
+  const layoutWidth = Math.max(320, wrapperWidth || naturalWidth);
+  const stepX = data.length > 1 ? (layoutWidth - paddingLeft - paddingRight) / (data.length - 1) : 0;
+  const baseY = chartHeight - paddingBottom;
+
+  const allValues = data.flatMap((p) => [p.total, p.potential]);
+  const rawMax = Math.max(...allValues, 0);
+
+  const niceMax = (v) => {
+    if (v <= 0) return 0;
+    const pow10 = Math.pow(10, Math.floor(Math.log10(v)));
+    const scaled = Math.ceil(v / pow10);
+    return scaled * pow10;
+  };
+  const maxValue = niceMax(rawMax * 1.05); // small headroom
+
+  const scaleY = (value) => {
+    if (!maxValue) return baseY;
+    const usable = chartHeight - paddingTop - paddingBottom;
+    const ratio = Math.max(0, Math.min(1, value / maxValue));
+    return paddingTop + (1 - ratio) * usable;
+  };
+
+  const points = data.map((point, index) => {
+    const x = paddingLeft + index * stepX;
+    return {
+      x,
+      date: point.date,
+      totalY: scaleY(point.total),
+      potentialY: scaleY(point.potential),
+    };
+  });
+
+  const buildMonotonePath = (yKey) => {
+    if (points.length === 1) {
+      const { x } = points[0];
+      const y = points[0][yKey];
+      return `M ${x} ${y} L ${x + 1} ${y}`;
+    }
+
+    const series = points.map((p) => ({ x: p.x, y: p[yKey] }));
+    const slopes = [];
+    for (let i = 0; i < series.length - 1; i += 1) {
+      const dx = series[i + 1].x - series[i].x;
+      const dy = series[i + 1].y - series[i].y;
+      slopes.push(dx === 0 ? 0 : dy / dx);
+    }
+
+    const tangents = new Array(series.length).fill(0);
+    if (slopes.length > 0) {
+      tangents[0] = slopes[0];
+      for (let i = 1; i < series.length - 1; i += 1) {
+        tangents[i] = (slopes[i - 1] + slopes[i]) / 2;
+      }
+      tangents[series.length - 1] = slopes[slopes.length - 1];
+
+      for (let i = 0; i < slopes.length; i += 1) {
+        if (slopes[i] === 0) {
+          tangents[i] = 0;
+          tangents[i + 1] = 0;
+          continue;
+        }
+        const a = tangents[i] / slopes[i];
+        const b = tangents[i + 1] / slopes[i];
+        const s = a * a + b * b;
+        if (s > 9) {
+          const tau = 3 / Math.sqrt(s);
+          tangents[i] = tau * a * slopes[i];
+          tangents[i + 1] = tau * b * slopes[i];
+        }
+      }
+    }
+
+    let path = `M ${series[0].x} ${series[0].y}`;
+    for (let i = 0; i < series.length - 1; i += 1) {
+      const p0 = series[i];
+      const p1 = series[i + 1];
+      const dx = p1.x - p0.x;
+      const c1x = p0.x + dx / 3;
+      const c1y = p0.y + (tangents[i] * dx) / 3;
+      const c2x = p1.x - dx / 3;
+      const c2y = p1.y - (tangents[i + 1] * dx) / 3;
+      path += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${p1.x} ${p1.y}`;
+    }
+    return path;
+  };
+
+  const buildAreaPath = (yKey) => {
+    if (points.length === 1) {
+      const { x } = points[0];
+      const y = points[0][yKey];
+      return `M ${x} ${baseY} L ${x} ${y} L ${x + 1} ${y} L ${x + 1} ${baseY} Z`;
+    }
+    const linePath = buildMonotonePath(yKey);
+    const firstX = points[0].x;
+    const lastX = points[points.length - 1].x;
+    return `${linePath} L ${lastX} ${baseY} L ${firstX} ${baseY} Z`;
+  };
+
+  const ticks =
+    maxValue === 0
+      ? [0]
+      : [0, Math.round(maxValue / 3), Math.round((maxValue * 2) / 3), Math.round(maxValue)];
+
+  const dateFormatter = new Intl.DateTimeFormat("nl-NL", { month: "short", day: "numeric" });
+  // Generate day labels at a fixed cadence to avoid "random" skips.
+  // We target at most 7 labels and step by whole days.
+  const maxLabels = 7;
+  const stepDays = Math.max(1, Math.ceil(data.length / maxLabels));
+  const labelList = [];
+  for (let i = 0; i < data.length; i += stepDays) {
+    labelList.push(i);
+  }
+  if (labelList[labelList.length - 1] !== data.length - 1) {
+    labelList.push(data.length - 1);
+  }
+
+  const totalPath = buildMonotonePath("totalY");
+  const potentialPath = buildMonotonePath("potentialY");
+
+  const onMouseMove = (e) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const scrollLeft = wrapperRef.current ? wrapperRef.current.scrollLeft : 0;
+    const x = e.clientX - rect.left + scrollLeft; // svg coord
+    const clampedX = Math.max(paddingLeft, Math.min(layoutWidth - paddingRight, x));
+    if (stepX === 0) {
+      setHoverIndex(0);
+      setHoverX(points[0].x);
+      return;
+    }
+    const index = Math.round((clampedX - paddingLeft) / stepX);
+    const safeIndex = Math.max(0, Math.min(points.length - 1, index));
+    setHoverIndex(safeIndex);
+    setHoverX(paddingLeft + safeIndex * stepX);
+  };
+
+  const onMouseLeave = () => {
+    setHoverIndex(null);
+    setHoverX(null);
+  };
+
+  return (
+    <div style={{ ...sx.chartContainer, position: "relative", overflowX: "hidden" }} ref={wrapperRef}>
+      <svg
+        ref={svgRef}
+        width={layoutWidth}
+        height={chartHeight}
+        onMouseMove={onMouseMove}
+        onMouseLeave={onMouseLeave}
+      >
+        <defs>
+          <linearGradient id="fill-actual" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#754FFE" stopOpacity="0.20" />
+            <stop offset="95%" stopColor="#754FFE" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="fill-potential" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#FFB743" stopOpacity="0.20" />
+            <stop offset="95%" stopColor="#FFB743" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
+        {ticks.map((tick) => {
+          const y = scaleY(tick);
+          return (
+            <g key={`tick-${tick}`}>
+              <line
+                x1={paddingLeft}
+                x2={layoutWidth - paddingRight}
+                y1={y}
+                y2={y}
+                stroke="#dfe3e8"
+                strokeDasharray="4 4"
+                strokeWidth="1"
+              />
+              <text x={paddingLeft - 12} y={y + 4} fontSize="11" textAnchor="end" fill="#5c5f62">
+                {formatCurrency(tick)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Areas and lines */}
+        <path d={buildAreaPath("potentialY")} fill="url(#fill-potential)" stroke="none" />
+        <path d={buildAreaPath("totalY")} fill="url(#fill-actual)" stroke="none" />
+        <path d={potentialPath} fill="none" stroke="#FFB743" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={totalPath} fill="none" stroke="#754FFE" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* X-axis date labels inside SVG */}
+        {labelList.map((index) => {
+          const p = points[index];
+          const labelY = baseY + 26;
+          const text = dateFormatter.format(new Date(`${p.date}T00:00:00Z`));
+          return (
+            <g key={`xlab-${p.date}`}>
+              <text
+                x={p.x}
+                y={labelY}
+                fontSize="12"
+                fill="#5c5f62"
+                transform={`rotate(45 ${p.x} ${labelY})`}
+                textAnchor="start"
+              >
+                {text}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Hover guide */}
+        {hoverIndex !== null && points[hoverIndex] && (
+          <g>
+            <line
+              x1={hoverX}
+              x2={hoverX}
+              y1={paddingTop}
+              y2={baseY}
+              stroke="#c9ccd0"
+              strokeWidth="1"
+            />
+            <circle cx={hoverX} cy={points[hoverIndex].totalY} r="4" fill="#754FFE" stroke="#ffffff" strokeWidth="1.5" />
+            <circle cx={hoverX} cy={points[hoverIndex].potentialY} r="4" fill="#FFB743" stroke="#ffffff" strokeWidth="1.5" />
+          </g>
+        )}
+      </svg>
+
+      {/* Tooltip */}
+      {hoverIndex !== null && points[hoverIndex] && data[hoverIndex] && (
+        (() => {
+          const p = points[hoverIndex];
+          const dataPoint = data[hoverIndex];
+          const tooltipWidth = 220;
+          // Push tooltip farther from the cursor/markers for clarity
+          const offset = 35;
+          const leftPreferred = (hoverX || 0) + offset;
+          const leftAlt = (hoverX || 0) - tooltipWidth - offset;
+          const maxLeft = layoutWidth - paddingRight - tooltipWidth;
+          const left = Math.min(Math.max(leftPreferred, paddingLeft), maxLeft);
+          const useAlt = leftPreferred > maxLeft;
+          const finalLeft = useAlt ? Math.max(leftAlt, paddingLeft) : left;
+          const top = paddingTop + 18;
+          const dateLabel = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "long", year: "numeric" }).format(
+            new Date(`${p.date}T00:00:00Z`),
+          );
+          return (
+            <div
+              style={{
+                position: "absolute",
+                left: finalLeft,
+                top,
+                width: tooltipWidth,
+                background: "#ffffff",
+                border: "1px solid #e1e4e8",
+                borderRadius: 8,
+                boxShadow: "0 8px 20px rgba(0,0,0,0.08)",
+                padding: 12,
+                pointerEvents: "none",
+                fontSize: 13,
+                color: "#202223",
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>{dateLabel}</div>
+              <div style={{ color: "#FFB743", marginBottom: 2 }}>Potentieel: {formatCurrency(dataPoint.potential)}</div>
+              <div style={{ color: "#754FFE" }}>Gerealiseerd: {formatCurrency(dataPoint.total)}</div>
+            </div>
+          );
+        })()
+      )}
+
+      <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
+        <LegendPill color="#754FFE" label="Gerealiseerd" />
+        <LegendPill color="#FFB743" label="Potentieel" />
+      </div>
+    </div>
+  );
+};
+
+const LegendPill = ({ color, label }) => (
+  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "#202223" }}>
+    <span style={{ width: 12, height: 12, borderRadius: 999, backgroundColor: color, display: "inline-block" }} />
+    {label}
+  </span>
+);
 
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
