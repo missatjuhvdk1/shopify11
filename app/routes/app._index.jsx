@@ -22,12 +22,31 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const startParam = url.searchParams.get("startDate");
   const endParam = url.searchParams.get("endDate");
-  const { start, end, days } = resolveDateRange({
-    startDate: startParam,
-    endDate: endParam,
-    referenceDate: new Date(),
-    fallbackDays: DEFAULT_PERIOD_DAYS,
-  });
+  const useMonthDefault = !startParam && !endParam;
+  let start, end, days;
+  if (useMonthDefault) {
+    const ref = new Date();
+    const monthStart = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1, 0, 0, 0, 0));
+    const monthEnd = new Date(
+      Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+    );
+    const nowEnd = new Date();
+    nowEnd.setUTCHours(23, 59, 59, 999);
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    start = monthStart;
+    end = monthEnd > nowEnd ? nowEnd : monthEnd;
+    days = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY) + 1;
+  } else {
+    const r = resolveDateRange({
+      startDate: startParam,
+      endDate: endParam,
+      referenceDate: new Date(),
+      fallbackDays: DEFAULT_PERIOD_DAYS,
+    });
+    start = r.start;
+    end = r.end;
+    days = r.days;
+  }
   const createdFilter = `created_at:>=${start.toISOString()} created_at:<=${end.toISOString()}`;
 
   const query = `#graphql

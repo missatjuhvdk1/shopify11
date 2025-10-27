@@ -17,12 +17,31 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const startParam = url.searchParams.get("startDate");
   const endParam = url.searchParams.get("endDate");
-  const { start, end, days } = resolveDateRange({
-    startDate: startParam,
-    endDate: endParam,
-    referenceDate: new Date(),
-    fallbackDays: DEFAULT_PERIOD_DAYS,
-  });
+  const useMonthDefault = !startParam && !endParam;
+  let start, end, days;
+  if (useMonthDefault) {
+    const ref = new Date();
+    const monthStart = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1, 0, 0, 0, 0));
+    const monthEnd = new Date(
+      Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+    );
+    const nowEnd = new Date();
+    nowEnd.setUTCHours(23, 59, 59, 999);
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    start = monthStart;
+    end = monthEnd > nowEnd ? nowEnd : monthEnd;
+    days = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY) + 1;
+  } else {
+    const r = resolveDateRange({
+      startDate: startParam,
+      endDate: endParam,
+      referenceDate: new Date(),
+      fallbackDays: DEFAULT_PERIOD_DAYS,
+    });
+    start = r.start;
+    end = r.end;
+    days = r.days;
+  }
   const createdFilter = `created_at:>=${start.toISOString()} created_at:<=${end.toISOString()}`;
 
   const query = `#graphql
@@ -84,13 +103,13 @@ export default function SummaryPage() {
     () => [
       {
         id: "gross",
-        label: "Bruto",
+        label: "Bruto Omzet",
         value: formatCurrency(metrics.summary.bruto),
         helpText: "Voor kortingen en referrals + verzendkosten",
       },
       {
         id: "net",
-        label: "Netto",
+        label: "Netto Omzet",
         value: formatCurrency(metrics.summary.netto),
         helpText: "Na kortingen/referrals + verzend-inkomen",
       },
@@ -279,7 +298,7 @@ const RevenueComparisonChart = ({ data }) => {
             <g key={`tick-${i}`}>
               <line x1={paddingLeft} x2={layoutWidth - paddingRight} y1={y} y2={y} stroke="#f0f2f4" />
               <text x={paddingLeft - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#5c5f62">
-                {t.toLocaleString("en-US")}
+                {formatCurrency(t)}
               </text>
             </g>
           );
@@ -303,12 +322,14 @@ const RevenueComparisonChart = ({ data }) => {
         <path d={totalPath} stroke="#34a853" strokeWidth="2" fill="none" />
 
         {/* Hover */}
-        {hoverIndex !== null && (
+        {hoverIndex !== null && points[hoverIndex] && (
           <g>
             <line x1={hoverX} x2={hoverX} y1={paddingTop} y2={height - paddingBottom} stroke="#aeb4b9" strokeDasharray="4 3" />
+            <circle cx={hoverX} cy={points[hoverIndex].totalY} r="4" fill="#34a853" stroke="#ffffff" strokeWidth="1.5" />
+            <circle cx={hoverX} cy={points[hoverIndex].potentialY} r="4" fill="#1f73ff" stroke="#ffffff" strokeWidth="1.5" />
           </g>
         )}
-
+      
         {/* X-axis labels */}
         {labelList.map((i) => (
           <text
@@ -323,6 +344,48 @@ const RevenueComparisonChart = ({ data }) => {
           </text>
         ))}
       </svg>
+
+      {/* Tooltip */}
+      {hoverIndex !== null && points[hoverIndex] && data[hoverIndex] && (
+        (() => {
+          const p = points[hoverIndex];
+          const dataPoint = data[hoverIndex];
+          const tooltipWidth = 220;
+          const offset = 35;
+          const leftPreferred = (hoverX || 0) + offset;
+          const leftAlt = (hoverX || 0) - tooltipWidth - offset;
+          const maxLeft = layoutWidth - paddingRight - tooltipWidth;
+          const left = Math.min(Math.max(leftPreferred, paddingLeft), maxLeft);
+          const useAlt = leftPreferred > maxLeft;
+          const finalLeft = useAlt ? Math.max(leftAlt, paddingLeft) : left;
+          const top = paddingTop + 18;
+          const dateLabel = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "long", year: "numeric" }).format(
+            new Date(`${p.date}T00:00:00Z`),
+          );
+          return (
+            <div
+              style={{
+                position: "absolute",
+                left: finalLeft,
+                top,
+                width: tooltipWidth,
+                background: "#ffffff",
+                border: "1px solid #e1e4e8",
+                borderRadius: 8,
+                boxShadow: "0 8px 20px rgba(0,0,0,0.08)",
+                padding: 12,
+                pointerEvents: "none",
+                fontSize: 13,
+                color: "#202223",
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>{dateLabel}</div>
+              <div style={{ color: "#1f73ff", marginBottom: 2 }}>Bruto: {formatCurrency(dataPoint.potential)}</div>
+              <div style={{ color: "#34a853" }}>Netto: {formatCurrency(dataPoint.total)}</div>
+            </div>
+          );
+        })()
+      )}
     </div>
   );
 };
