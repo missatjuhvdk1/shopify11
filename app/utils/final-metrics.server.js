@@ -9,7 +9,7 @@ const roundTo = (value, precision = 2) => {
 const toDateKey = (iso) => new Date(iso).toISOString().slice(0, 10);
 
 export const createFinalMetrics = ({
-  orders = [], // with: createdAt, totalPrice, totalDiscounts, referralPayout, shippingCountryCode, totalShippingPrice
+  orders = [], // with: createdAt, totalPrice, totalDiscounts, referralPayout, shippingCountryCode, totalShippingPrice, productCost?
   startDate,
   endDate,
   periodDays,
@@ -30,6 +30,7 @@ export const createFinalMetrics = ({
   let totalReferralPayout = 0;
   let totalShippingCharged = 0;
   let totalShippingCost = 0;
+  let totalProductCost = 0;
 
   const trendMap = new Map();
 
@@ -46,14 +47,15 @@ export const createFinalMetrics = ({
     const payout = Number(o.referralPayout || 0);
     const shipCharged = Number(o.totalShippingPrice || 0);
     const shipCost = getShippingCostForCountry(o.shippingCountryCode);
+    const prodCost = Number(o.productCost || 0);
 
     // Gross: before discounts and referral payouts, plus shipping charged
     // -> price + discounts + payout + shipCharged
     const gross = price + discounts + payout + shipCharged;
 
-    // Net: realized revenue minus referral payout + shipping income (charged - cost)
-    // -> (price - payout) + (shipCharged - shipCost)
-    const net = price - payout + (shipCharged - shipCost);
+    // Net: realized revenue minus referral payout and product costs + shipping income (charged - cost)
+    // -> (price - payout - prodCost) + (shipCharged - shipCost)
+    const net = price - payout - prodCost + (shipCharged - shipCost);
 
     grossTotal += gross;
     netTotal += net;
@@ -61,6 +63,7 @@ export const createFinalMetrics = ({
     totalReferralPayout += payout;
     totalShippingCharged += shipCharged;
     totalShippingCost += shipCost;
+    totalProductCost += prodCost;
 
     const key = toDateKey(o.createdAt);
     const t = ensureTrend(key);
@@ -106,6 +109,7 @@ export const createFinalMetrics = ({
       totalReferralPayout: roundTo(totalReferralPayout),
       totalShippingCharged: roundTo(totalShippingCharged),
       totalShippingCost: roundTo(totalShippingCost),
+      totalProductCost: roundTo(totalProductCost),
     },
     trend,
   };

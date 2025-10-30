@@ -2,8 +2,10 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { withCache } from "../utils/cache.server.js";
 import { DEFAULT_PERIOD_DAYS, resolveDateRange } from "../utils/dashboard-metrics.server.js";
 import { createFinalMetrics } from "../utils/final-metrics.server.js";
+import { sumCOGSFromLineItems } from "../utils/product-costs.server.js";
 import {
   MetricsPageLayout,
   formatCurrencyEUR as formatCurrency,
@@ -12,9 +14,10 @@ import {
 } from "../components/metrics-page.jsx";
 
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   const url = new URL(request.url);
+  const shopId = (session && session.shop) || url.searchParams.get("shop") || request.headers.get("x-shopify-shop-domain") || "unknown";
   const startParam = url.searchParams.get("startDate");
   const endParam = url.searchParams.get("endDate");
   const useMonthDefault = !startParam && !endParam;
@@ -58,6 +61,7 @@ export const loader = async ({ request }) => {
             shippingAddress { countryCodeV2 country }
             totalShippingPriceSet { shopMoney { amount currencyCode } }
             discountApplications(first: 20) { nodes { __typename ... on AutomaticDiscountApplication { title } } }
+            lineItems(first: 100) { edges { node { title name quantity } } }
           }
         }
         pageInfo { hasNextPage endCursor }
@@ -66,34 +70,42 @@ export const loader = async ({ request }) => {
   `;
 
   // Fetch all pages within date range (up to several pages)
-  let after = null;
-  let edges = [];
-  for (let i = 0; i < 10; i += 1) { // safety cap ~ 10 * 250 = 2500 orders
-    const resp = await admin.graphql(query, { variables: { first: 250, query: createdFilter, after } });
-    const result = await resp.json();
-    const page = result?.data?.orders;
-    if (!page) break;
-    edges = edges.concat(page.edges || []);
-    if (!page.pageInfo?.hasNextPage) break;
-    after = page.pageInfo.endCursor;
-  }
+  const cacheKey = `orders:summary:${shopId}:${start.toISOString()}:${end.toISOString()}`;
+  const { value: orders } = await withCache(
+    cacheKey,
+    async () => {
+      let after = null;
+      let edges = [];
+      for (let i = 0; i < 10; i += 1) { // safety cap ~ 10 * 250 = 2500 orders
+        const resp = await admin.graphql(query, { variables: { first: 250, query: createdFilter, after } });
+        const result = await resp.json();
+        const page = result?.data?.orders;
+        if (!page) break;
+        edges = edges.concat(page.edges || []);
+        if (!page.pageInfo?.hasNextPage) break;
+        after = page.pageInfo.endCursor;
+      }
 
-  const orders = edges.map((e) => {
-    const n = e.node;
-    const referralTag = (n.tags || []).find((t) => typeof t === "string" && t.startsWith("Referral - "));
-    const referralSource = referralTag ? referralTag.replace(/^Referral -\s*/, "").trim() : null;
-    const totalPrice = Number(n.totalPriceSet?.shopMoney?.amount || 0);
-    return {
-      id: n.id,
-      createdAt: n.createdAt,
-      totalPrice,
-      totalDiscounts: Number(n.totalDiscountsSet?.shopMoney?.amount || 0),
-      referralPayout: referralSource ? totalPrice * 0.3 : 0,
-      shippingCountryCode: n?.shippingAddress?.countryCodeV2 || null,
-      shippingCountryName: n?.shippingAddress?.country || null,
-      totalShippingPrice: Number(n?.totalShippingPriceSet?.shopMoney?.amount || 0),
-    };
-  });
+      return edges.map((e) => {
+        const n = e.node;
+        const referralTag = (n.tags || []).find((t) => typeof t === "string" && t.startsWith("Referral - "));
+        const referralSource = referralTag ? referralTag.replace(/^Referral -\s*/, "").trim() : null;
+        const totalPrice = Number(n.totalPriceSet?.shopMoney?.amount || 0);
+        const productCost = sumCOGSFromLineItems(n?.lineItems?.edges || []);
+        return {
+          id: n.id,
+          createdAt: n.createdAt,
+          totalPrice,
+          totalDiscounts: Number(n.totalDiscountsSet?.shopMoney?.amount || 0),
+          referralPayout: referralSource ? totalPrice * 0.3 : 0,
+          shippingCountryCode: n?.shippingAddress?.countryCodeV2 || null,
+          shippingCountryName: n?.shippingAddress?.country || null,
+          totalShippingPrice: Number(n?.totalShippingPriceSet?.shopMoney?.amount || 0),
+          productCost,
+        };
+      });
+    },
+  );
 
   const metrics = createFinalMetrics({
     orders,
@@ -123,7 +135,7 @@ export default function SummaryPage() {
         id: "net",
         label: "Netto Omzet",
         value: formatCurrency(metrics.summary.netto),
-        helpText: "Na kortingen/referrals + verzend-inkomen",
+        helpText: "Na kortingen/referrals + verzend-inkomen – inkoop",
       },
     ],
     [metrics.summary],

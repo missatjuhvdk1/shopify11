@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { withCache } from "../utils/cache.server.js";
 import { DEFAULT_PERIOD_DAYS, resolveDateRange } from "../utils/dashboard-metrics.server.js";
 import { createShippingMetrics } from "../utils/shipping-metrics.server.js";
 import {
@@ -12,9 +13,10 @@ import {
 } from "../components/metrics-page.jsx";
 
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   const url = new URL(request.url);
+  const shopId = (session && session.shop) || url.searchParams.get("shop") || request.headers.get("x-shopify-shop-domain") || "unknown";
   const startParam = url.searchParams.get("startDate");
   const endParam = url.searchParams.get("endDate");
   const useMonthDefault = !startParam && !endParam;
@@ -60,27 +62,33 @@ export const loader = async ({ request }) => {
       }
     }
   `;
-  let after = null;
-  let edges = [];
-  for (let i = 0; i < 10; i += 1) {
-    const resp = await admin.graphql(query, { variables: { first: 250, query: createdFilter, after } });
-    const result = await resp.json();
-    const page = result?.data?.orders;
-    if (!page) break;
-    edges = edges.concat(page.edges || []);
-    if (!page.pageInfo?.hasNextPage) break;
-    after = page.pageInfo.endCursor;
-  }
-  const orders = edges.map((e) => {
-    const n = e.node;
-    return {
-      id: n.id,
-      createdAt: n.createdAt,
-      shippingCountryCode: n?.shippingAddress?.countryCodeV2 || null,
-      shippingCountryName: n?.shippingAddress?.country || null,
-      totalShippingPrice: Number(n?.totalShippingPriceSet?.shopMoney?.amount || 0),
-    };
-  });
+  const cacheKey = `orders:shipments:${shopId}:${start.toISOString()}:${end.toISOString()}`;
+  const { value: orders } = await withCache(
+    cacheKey,
+    async () => {
+      let after = null;
+      let edges = [];
+      for (let i = 0; i < 10; i += 1) {
+        const resp = await admin.graphql(query, { variables: { first: 250, query: createdFilter, after } });
+        const result = await resp.json();
+        const page = result?.data?.orders;
+        if (!page) break;
+        edges = edges.concat(page.edges || []);
+        if (!page.pageInfo?.hasNextPage) break;
+        after = page.pageInfo.endCursor;
+      }
+      return edges.map((e) => {
+        const n = e.node;
+        return {
+          id: n.id,
+          createdAt: n.createdAt,
+          shippingCountryCode: n?.shippingAddress?.countryCodeV2 || null,
+          shippingCountryName: n?.shippingAddress?.country || null,
+          totalShippingPrice: Number(n?.totalShippingPriceSet?.shopMoney?.amount || 0),
+        };
+      });
+    },
+  );
 
   const metrics = createShippingMetrics({
     orders,

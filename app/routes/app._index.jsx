@@ -3,6 +3,7 @@ import { useMemo, useEffect, useRef, useState } from "react";
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { withCache } from "../utils/cache.server.js";
 import { DEFAULT_PERIOD_DAYS } from "../utils/constants.js";
 import {
   createDashboardMetrics,
@@ -17,9 +18,10 @@ import {
 } from "../components/metrics-page.jsx";
 
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   const url = new URL(request.url);
+  const shopId = (session && session.shop) || url.searchParams.get("shop") || request.headers.get("x-shopify-shop-domain") || "unknown";
   const startParam = url.searchParams.get("startDate");
   const endParam = url.searchParams.get("endDate");
   const useMonthDefault = !startParam && !endParam;
@@ -92,73 +94,79 @@ export const loader = async ({ request }) => {
       }
     }
   `;
-  let after = null;
-  let edges = [];
-  for (let i = 0; i < 10; i += 1) {
-    const resp = await admin.graphql(query, {
-      variables: { first: 250, query: createdFilter, after },
-    });
-    const result = await resp.json();
-    const page = result?.data?.orders;
-    if (!page) break;
-    edges = edges.concat(page.edges || []);
-    if (!page.pageInfo?.hasNextPage) break;
-    after = page.pageInfo.endCursor;
-  }
-  const orders = edges.map((e) => {
-    const n = e.node;
+  const cacheKey = `orders:overview:${shopId}:${start.toISOString()}:${end.toISOString()}`;
+  const { value: orders } = await withCache(
+    cacheKey,
+    async () => {
+      let after = null;
+      let edges = [];
+      for (let i = 0; i < 10; i += 1) {
+        const resp = await admin.graphql(query, {
+          variables: { first: 250, query: createdFilter, after },
+        });
+        const result = await resp.json();
+        const page = result?.data?.orders;
+        if (!page) break;
+        edges = edges.concat(page.edges || []);
+        if (!page.pageInfo?.hasNextPage) break;
+        after = page.pageInfo.endCursor;
+      }
+      return edges.map((e) => {
+        const n = e.node;
 
-    // Sum allocated discount amounts per discount application
-    const allocationSums = new Map();
-    const liEdges = n.lineItems?.edges || [];
-    liEdges.forEach((li) => {
-      const allocs = li?.node?.discountAllocations || [];
-      allocs.forEach((alloc) => {
-        const app = alloc.discountApplication;
-        if (!app) return;
-        const key =
-          app.__typename === "AutomaticDiscountApplication" ? `auto::${app.title}` : `code::${app.code}`;
-        const amt = Number(alloc.allocatedAmountSet?.shopMoney?.amount || 0);
-        allocationSums.set(key, (allocationSums.get(key) || 0) + amt);
+        // Sum allocated discount amounts per discount application
+        const allocationSums = new Map();
+        const liEdges = n.lineItems?.edges || [];
+        liEdges.forEach((li) => {
+          const allocs = li?.node?.discountAllocations || [];
+          allocs.forEach((alloc) => {
+            const app = alloc.discountApplication;
+            if (!app) return;
+            const key =
+              app.__typename === "AutomaticDiscountApplication" ? `auto::${app.title}` : `code::${app.code}`;
+            const amt = Number(alloc.allocatedAmountSet?.shopMoney?.amount || 0);
+            allocationSums.set(key, (allocationSums.get(key) || 0) + amt);
+          });
+        });
+
+        const apps = (n.discountApplications?.nodes || []).map((a) => {
+          const key =
+            a.__typename === "AutomaticDiscountApplication" ? `auto::${a.title}` : `code::${a.code}`;
+          const amount = Number(allocationSums.get(key) || 0);
+          return {
+            code: a.code,
+            title: a.title,
+            type: a.__typename === "AutomaticDiscountApplication" ? "auto" : "code",
+            amount,
+          };
+        });
+
+        // Treat automatic discounts as deals for the "Deal performance" table
+        const dealApplications = apps
+          .filter((a) => a.type === "auto")
+          .map((a) => ({ id: a.title, title: a.title, type: a.type, amount: a.amount }));
+
+        // Referral detection: tag of form "Referral - ...". Payout = 30% of final price
+        const referralTag = (n.tags || []).find((t) => typeof t === "string" && t.startsWith("Referral - "));
+        const referralSource = referralTag ? referralTag.replace(/^Referral -\s*/, "").trim() : null;
+
+        const totalPrice = Number(n.totalPriceSet?.shopMoney?.amount || 0);
+        const totalDiscounts = Number(n.totalDiscountsSet?.shopMoney?.amount || 0);
+
+        return {
+          id: n.id,
+          createdAt: n.createdAt,
+          totalPrice,
+          totalDiscounts,
+          discountApplications: apps,
+          dealApplications,
+          isReferral: Boolean(referralSource),
+          referralSource: referralSource || undefined,
+          referralPayout: referralSource ? totalPrice * 0.3 : 0,
+        };
       });
-    });
-
-    const apps = (n.discountApplications?.nodes || []).map((a) => {
-      const key =
-        a.__typename === "AutomaticDiscountApplication" ? `auto::${a.title}` : `code::${a.code}`;
-      const amount = Number(allocationSums.get(key) || 0);
-      return {
-        code: a.code,
-        title: a.title,
-        type: a.__typename === "AutomaticDiscountApplication" ? "auto" : "code",
-        amount,
-      };
-    });
-
-    // Treat automatic discounts as deals for the "Deal performance" table
-    const dealApplications = apps
-      .filter((a) => a.type === "auto")
-      .map((a) => ({ id: a.title, title: a.title, type: a.type, amount: a.amount }));
-
-    // Referral detection: tag of form "Referral - ...". Payout = 30% of final price
-    const referralTag = (n.tags || []).find((t) => typeof t === "string" && t.startsWith("Referral - "));
-    const referralSource = referralTag ? referralTag.replace(/^Referral -\s*/, "").trim() : null;
-
-    const totalPrice = Number(n.totalPriceSet?.shopMoney?.amount || 0);
-    const totalDiscounts = Number(n.totalDiscountsSet?.shopMoney?.amount || 0);
-
-    return {
-      id: n.id,
-      createdAt: n.createdAt,
-      totalPrice,
-      totalDiscounts,
-      discountApplications: apps,
-      dealApplications,
-      isReferral: Boolean(referralSource),
-      referralSource: referralSource || undefined,
-      referralPayout: referralSource ? totalPrice * 0.3 : 0,
-    };
-  });
+    },
+  );
 
   const metrics = createDashboardMetrics({
     orders,
