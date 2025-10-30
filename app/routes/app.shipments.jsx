@@ -6,7 +6,7 @@ import { DEFAULT_PERIOD_DAYS, resolveDateRange } from "../utils/dashboard-metric
 import { createShippingMetrics } from "../utils/shipping-metrics.server.js";
 import {
   MetricsPageLayout,
-  formatCurrency,
+  formatCurrencyEUR as formatCurrency,
   metricsStyles as sx,
   useMetricsController,
 } from "../components/metrics-page.jsx";
@@ -45,9 +45,10 @@ export const loader = async ({ request }) => {
   const createdFilter = `created_at:>=${start.toISOString()} created_at:<=${end.toISOString()}`;
 
   const query = `#graphql
-    query OrdersForShippingPage($first: Int!, $query: String) {
-      orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
+    query OrdersForShippingPage($first: Int!, $query: String, $after: String) {
+      orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true, after: $after) {
         edges {
+          cursor
           node {
             id
             createdAt
@@ -55,13 +56,21 @@ export const loader = async ({ request }) => {
             totalShippingPriceSet { shopMoney { amount currencyCode } }
           }
         }
+        pageInfo { hasNextPage endCursor }
       }
     }
   `;
-
-  const resp = await admin.graphql(query, { variables: { first: 100, query: createdFilter } });
-  const result = await resp.json();
-  const edges = result?.data?.orders?.edges || [];
+  let after = null;
+  let edges = [];
+  for (let i = 0; i < 10; i += 1) {
+    const resp = await admin.graphql(query, { variables: { first: 250, query: createdFilter, after } });
+    const result = await resp.json();
+    const page = result?.data?.orders;
+    if (!page) break;
+    edges = edges.concat(page.edges || []);
+    if (!page.pageInfo?.hasNextPage) break;
+    after = page.pageInfo.endCursor;
+  }
   const orders = edges.map((e) => {
     const n = e.node;
     return {
@@ -88,6 +97,20 @@ export default function ShipmentsPage() {
   const { metrics: initialMetrics } = useLoaderData();
   const controller = useMetricsController(initialMetrics, { fetchPath: "/api/metrics/shipments" });
   const { metrics } = controller;
+
+  // Dutch country names via Intl.DisplayNames with fallback
+  let regionNames;
+  try {
+    regionNames = new Intl.DisplayNames(["nl-NL", "nl"], { type: "region" });
+  } catch (_) {
+    regionNames = null;
+  }
+
+  // Sort countries by order count, high → low
+  const sortedCountries = useMemo(() => {
+    const arr = Array.isArray(metrics?.shipments?.byCountry) ? [...metrics.shipments.byCountry] : [];
+    return arr.sort((a, b) => (Number(b?.orders || 0) - Number(a?.orders || 0)));
+  }, [metrics?.shipments?.byCountry]);
 
   const summaryCards = useMemo(
     () => [
@@ -138,15 +161,18 @@ export default function ShipmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {metrics.shipments.byCountry.map((c) => (
+              {sortedCountries.map((c) => {
+                const dutchName = c.countryCode && regionNames ? regionNames.of(c.countryCode) : null;
+                const displayName = dutchName || c.countryName || c.countryCode || "Onbekend";
+                return (
                 <tr key={c.countryCode || c.countryName}>
-                  <td style={sx.td} data-label="Land">{c.countryName || c.countryCode || "Onbekend"}</td>
+                  <td style={sx.td} data-label="Land">{displayName}</td>
                   <td style={sx.td} data-label="Bestellingen">{c.orders}</td>
                   <td style={sx.td} data-label="Afgerekend">{formatCurrency(c.charged)}</td>
                   <td style={sx.td} data-label="Kosten">{formatCurrency(c.cost)}</td>
                   <td style={sx.td} data-label="Inkomen">{formatCurrency(c.income)}</td>
                 </tr>
-              ))}
+              );})}
               {metrics.shipments.byCountry.length === 0 && (
                 <tr>
                   <td colSpan={5} style={sx.emptyState}>Geen bestellingen met verzending in deze periode.</td>

@@ -36,9 +36,10 @@ export const loader = async ({ request }) => {
   const createdFilter = `created_at:>=${start.toISOString()} created_at:<=${end.toISOString()}`;
 
   const query = `#graphql
-    query OrdersForFinalSummary($first: Int!, $query: String) {
-      orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
+    query OrdersForFinalSummary($first: Int!, $query: String, $after: String) {
+      orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true, after: $after) {
         edges {
+          cursor
           node {
             id
             createdAt
@@ -50,13 +51,23 @@ export const loader = async ({ request }) => {
             discountApplications(first: 20) { nodes { __typename ... on AutomaticDiscountApplication { title } } }
           }
         }
+        pageInfo { hasNextPage endCursor }
       }
     }
   `;
 
-  const resp = await admin.graphql(query, { variables: { first: 100, query: createdFilter } });
-  const result = await resp.json();
-  const edges = result?.data?.orders?.edges || [];
+  let after = null;
+  let edges = [];
+  for (let i = 0; i < 10; i += 1) {
+    const resp = await admin.graphql(query, { variables: { first: 250, query: createdFilter, after } });
+    const result = await resp.json();
+    const page = result?.data?.orders;
+    if (!page) break;
+    edges = edges.concat(page.edges || []);
+    if (!page.pageInfo?.hasNextPage) break;
+    after = page.pageInfo.endCursor;
+  }
+
   const orders = edges.map((e) => {
     const n = e.node;
     const referralTag = (n.tags || []).find((t) => typeof t === "string" && t.startsWith("Referral - "));

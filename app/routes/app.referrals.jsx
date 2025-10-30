@@ -3,7 +3,7 @@ import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   MetricsPageLayout,
-  formatCurrency,
+  formatCurrencyEUR as formatCurrency,
   metricsStyles as sx,
   useMetricsController,
 } from "../components/metrics-page.jsx";

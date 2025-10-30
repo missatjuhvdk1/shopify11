@@ -6,7 +6,7 @@ import { DEFAULT_PERIOD_DAYS, resolveDateRange } from "../utils/dashboard-metric
 import { createFinalMetrics } from "../utils/final-metrics.server.js";
 import {
   MetricsPageLayout,
-  formatCurrency,
+  formatCurrencyEUR as formatCurrency,
   metricsStyles as sx,
   useMetricsController,
 } from "../components/metrics-page.jsx";
@@ -45,9 +45,10 @@ export const loader = async ({ request }) => {
   const createdFilter = `created_at:>=${start.toISOString()} created_at:<=${end.toISOString()}`;
 
   const query = `#graphql
-    query OrdersForFinalSummaryPage($first: Int!, $query: String) {
-      orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
+    query OrdersForFinalSummaryPage($first: Int!, $query: String, $after: String) {
+      orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true, after: $after) {
         edges {
+          cursor
           node {
             id
             createdAt
@@ -59,13 +60,24 @@ export const loader = async ({ request }) => {
             discountApplications(first: 20) { nodes { __typename ... on AutomaticDiscountApplication { title } } }
           }
         }
+        pageInfo { hasNextPage endCursor }
       }
     }
   `;
 
-  const resp = await admin.graphql(query, { variables: { first: 100, query: createdFilter } });
-  const result = await resp.json();
-  const edges = result?.data?.orders?.edges || [];
+  // Fetch all pages within date range (up to several pages)
+  let after = null;
+  let edges = [];
+  for (let i = 0; i < 10; i += 1) { // safety cap ~ 10 * 250 = 2500 orders
+    const resp = await admin.graphql(query, { variables: { first: 250, query: createdFilter, after } });
+    const result = await resp.json();
+    const page = result?.data?.orders;
+    if (!page) break;
+    edges = edges.concat(page.edges || []);
+    if (!page.pageInfo?.hasNextPage) break;
+    after = page.pageInfo.endCursor;
+  }
+
   const orders = edges.map((e) => {
     const n = e.node;
     const referralTag = (n.tags || []).find((t) => typeof t === "string" && t.startsWith("Referral - "));

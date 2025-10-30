@@ -1,5 +1,15 @@
 /* eslint-disable react/prop-types */
 import { useEffect, useMemo, useRef, useState } from "react";
+
+// Euro currency formatter used across pages
+export const formatCurrencyEUR = (value) => {
+  const num = Number(value) || 0;
+  try {
+    return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR", currencyDisplay: "symbol" }).format(num);
+  } catch (_) {
+    return `€${num.toFixed(2)}`;
+  }
+};
 import { useFetcher } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 
